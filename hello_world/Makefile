@@ -11,5 +11,5 @@ $(TARGET): $(OBJFILES)
 	gcc -c $< -o $@
 
 clean:
-	rm $(TARGET)
-	rm $(OBJFILES)
+	rm -f $(TARGET)
+	rm -f $(OBJFILES)
