@@ -5,7 +5,8 @@
 
 int main(int argc, char ** argv) {
 	if(argc < 2) {
-		printf("Not enough argumnets");
+		fprintf(stderr, "Not enough argumnets\n");
+		return -1;
 	}
 	int file = open(argv[1], O_RDONLY);
 	if(file == -1) {
@@ -21,15 +22,19 @@ int main(int argc, char ** argv) {
 			while(bytesWritten != bytesRead) {
 				ssize_t bytes = write(STDOUT_FILENO, (void *)(buf + bytesWritten), bytesRead - bytesWritten);
 				if(bytes == -1) {
-					perror("Error writing to stdout");
-					return 1;
+					if(errno != EINTR) {
+						perror("Error writing to stdout");
+						return -1;	
+					}
+				} else {
+					bytesWritten += bytes;
 				}
-				bytesWritten += bytes;
-
 			}
 		} else if(bytesRead == -1) {
-			perror("Error reading from stdin");
-			return 1;
+			if(errno != EINTR) {
+				perror("Error reading from stdin");
+				return -1;
+			}
 		}
 	}
 	if(close(file) == -1) {
