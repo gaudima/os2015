@@ -1,6 +1,7 @@
 #!/bin/bash
 
 if [ $# -ne 1 ]; then
+	echo "Expected 1 argument"
 	exit
 fi
 
