@@ -1,6 +1,6 @@
 SOURCES=main.cpp
 OBJFILES=$(SOURCES:.cpp=.o)
-TARGET=midtermsh
+TARGET=simplesh
 
 all: $(TARGET)
 
