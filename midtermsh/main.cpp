@@ -72,7 +72,7 @@ vector<Command> tokenize(string &str) {
     for(size_t i = 0; i < str.size(); i++) {
         Command tmp;
         string tmps;
-        if((str[i] == '|' | i == str.size() - 1) && i >= firsti) {
+        if((str[i] == '|' || i == str.size() - 1) && i >= firsti) {
             if(i == str.size() - 1) {
                 i = str.size() + 1;
             }
@@ -82,14 +82,14 @@ vector<Command> tokenize(string &str) {
                 tmp.command = tmps;
             } else {
                 tmp.command = tmps.substr(0, pos);
-                string argsS = tmps.substr(pos + 1);
+                string argsS = trim(tmps.substr(pos + 1));
                 size_t firstj = 0;
                 for(size_t j = 0; j < argsS.size(); j++) {
-                    if((argsS[j] == ' ' | j == argsS.size() - 1) && j >= firstj) {
+                    if((argsS[j] == ' ' || j == argsS.size() - 1) && j >= firstj) {
                         if(j == argsS.size() - 1) {
                             j = argsS.size() + 1;
                         }
-                        string tmpa = trim(argsS.substr(firstj, j - firstj - 1));
+                        string tmpa = trim(argsS.substr(firstj, j - firstj));
                         //cout << tmpa << endl;
                         tmp.args.push_back(tmpa);
                         firstj = j + 1;
@@ -109,7 +109,10 @@ void runCommands(vector<Command> &commands) {
     int in = 0;
 
     for(int i = 0; i < commands.size(); i++) {
-        pipe(pip);
+        if(pipe(pip) == -1) {
+            perror("cant create pipe");
+            exit(-1);
+        }
         pid = fork();
         if(pid == 0) {
             dup2(in, STDIN_FILENO);
@@ -124,6 +127,9 @@ void runCommands(vector<Command> &commands) {
             }
             args[commands[i].args.size() + 1] = NULL;
             execvp(commands[i].command.c_str(), args);
+        } else if(pid == -1) {
+            perror("cant fork");
+            exit(-1);
         } else {
             setpgid(pid, 0);
             wait(NULL);
