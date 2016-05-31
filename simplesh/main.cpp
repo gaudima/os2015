@@ -3,11 +3,14 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <fcntl.h>
 #include <string>
 #include <vector>
+#include <iostream>
+
 using namespace std;
 
-int pid;
+vector<pid_t> childs;
 
 struct Command {
     string command;
@@ -16,17 +19,19 @@ struct Command {
 
 void sigintHandler(int sig) {
     if(sig == SIGINT) {
-        kill(-1 * pid, SIGINT);
+        for(int i = 0; i < childs.size(); i++) {
+            kill(childs[i], SIGINT);
+        }
         write(STDOUT_FILENO, "\n", 1);
     }
 }
 
 string readCommands() {
     string ret;
-    char buf[256];
+    char c;
     ssize_t bytesRead;
     while(true) {
-        bytesRead = read(STDIN_FILENO, buf, 256);
+        bytesRead = read(STDIN_FILENO, &c, 1);
         if(bytesRead == -1) {
             perror("cant read commands");
             exit(-1);
@@ -37,16 +42,15 @@ string readCommands() {
         }
         bool shouldExit = false;
         for(ssize_t i = 0; i < bytesRead; i++) {
-            if(buf[i] == '\n') {
+            if(c == '\n') {
                 shouldExit = true;
-                ret.append(buf, i);
                 break;
             }
+            ret.append(&c, 1);
         }
         if(shouldExit) {
             break;
         }
-        ret.append(buf, bytesRead);
     }
     return ret;
 }
@@ -90,7 +94,6 @@ vector<Command> tokenize(string &str) {
                             j = argsS.size() + 1;
                         }
                         string tmpa = trim(argsS.substr(firstj, j - firstj));
-                        //cout << tmpa << endl;
                         tmp.args.push_back(tmpa);
                         firstj = j + 1;
                     }
@@ -105,21 +108,33 @@ vector<Command> tokenize(string &str) {
 
 
 void runCommands(vector<Command> &commands) {
-    int pip[2];
-    int in = 0;
-
-    for(int i = 0; i < commands.size(); i++) {
-        if(pipe(pip) == -1) {
-            perror("cant create pipe");
-            exit(-1);
+    int in, new_in = STDIN_FILENO;
+    int out;
+    for (int i = 0; i < commands.size(); i++) {
+        in = new_in;
+        if (i != commands.size() - 1) {
+            int pipes[2];
+            if (pipe2(pipes, O_CLOEXEC)) {
+                perror("cant create pipe");
+                break;
+            };
+            new_in = pipes[0];
+            out = pipes[1];
+        } else {
+            out = STDOUT_FILENO;
         }
-        pid = fork();
-        if(pid == 0) {
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("cant fork");
+            break;
+        }
+        if (pid > 0) {
+            if (in != STDIN_FILENO) close(in);
+            if (out != STDOUT_FILENO) close(out);
+            childs.push_back(pid);
+        } else {
             dup2(in, STDIN_FILENO);
-            if(i != commands.size() - 1) {
-                dup2(pip[1], STDOUT_FILENO);
-            }
-            close(pip[0]);
+            dup2(out, STDOUT_FILENO);
             char *args[commands[i].args.size() + 2];
             args[0] = (char *)commands[i].command.c_str();
             for(int j = 1; j <= commands[i].args.size(); j++) {
@@ -127,16 +142,13 @@ void runCommands(vector<Command> &commands) {
             }
             args[commands[i].args.size() + 1] = NULL;
             execvp(commands[i].command.c_str(), args);
-        } else if(pid == -1) {
-            perror("cant fork");
-            exit(-1);
-        } else {
-            setpgid(pid, 0);
-            wait(NULL);
-            close(pip[1]);
-            in = pip[0];
         }
     }
+    int status;
+    for (int i = 0; i < childs.size(); i++) {
+        waitpid(childs[i], &status, 0);
+    }
+    childs.clear();
 }
 
 int main(int argc, char **argv) {
