@@ -131,7 +131,6 @@ string runCommands(vector<Command> &commands, string rest) {
     p.read = -1;
     p.write = -1;
     if(rest.size() > 0) {
-        //cout << "here1" << endl;
         if (pipe(p.pip) < 0) {
             perror("cant create pipe");
             exit(-1);
@@ -183,7 +182,6 @@ string runCommands(vector<Command> &commands, string rest) {
     childs.clear();
     string ret = "";
     if(rest.size() > 0) {
-        //cout << "here" << endl;
         ret = readCommands(p.read, 256);
         close(p.read);
     }
@@ -198,17 +196,14 @@ int main(int argc, char **argv) {
         string newCmd = readCommands(STDIN_FILENO, 256 - cmd.size());
 
         cmd.append(newCmd);
-        //cmd = newCmd;
         if(cmd.size() == 0) {
             write(STDOUT_FILENO, "\n", 1);
             break;
         }
 
         CmdStr cStr = splitCommand(cmd);
-        //cout << cStr.rest.length() << endl;
         vector<Command> commands = tokenize(cStr.command);
         cmd = runCommands(commands, cStr.rest);
-        //cout << "cmd: " << cmd << endl;
     }
     return 0;
 }
