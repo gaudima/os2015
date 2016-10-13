@@ -3,6 +3,7 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <string>
 #include <vector>
@@ -17,6 +18,19 @@ struct Command {
     vector<string> args;
 };
 
+struct CmdStr {
+    string command;
+    string rest;
+};
+
+union Pipe {
+    int pip[2];
+    struct {
+        int read;
+        int write;
+    };
+};
+
 void sigintHandler(int sig) {
     if(sig == SIGINT) {
         for(int i = 0; i < childs.size(); i++) {
@@ -26,30 +40,23 @@ void sigintHandler(int sig) {
     }
 }
 
-string readCommands() {
+string readCommands(int desc, int bufSize) {
     string ret;
-    char c;
-    ssize_t bytesRead;
+    char buf[bufSize];
     while(true) {
-        bytesRead = read(STDIN_FILENO, &c, 1);
+        ssize_t bytesRead = read(desc, buf, bufSize);
         if(bytesRead == -1) {
             perror("cant read commands");
             exit(-1);
         }
         if(bytesRead == 0) {
-            write(STDOUT_FILENO, "\n", 1);
-            exit(0);
-        }
-        bool shouldExit = false;
-        for(ssize_t i = 0; i < bytesRead; i++) {
-            if(c == '\n') {
-                shouldExit = true;
-                break;
-            }
-            ret.append(&c, 1);
-        }
-        if(shouldExit) {
             break;
+        }
+        ret.append(buf, bytesRead);
+        for(int i = 0; i < bytesRead; i++) {
+            if(buf[i] == '\n') {
+                return ret;
+            }
         }
     }
     return ret;
@@ -69,6 +76,17 @@ string trim(string str) {
     return trimLeft(trimRight(str));
 }
 
+CmdStr splitCommand(string s) {
+    CmdStr ret = {"", ""};
+    for(int i = 0; i < s.length(); i++) {
+        if(s[i] == '\n') {
+            ret.command.append(s, 0, i);
+            ret.rest.append(s, i + 1, s.length() - i - 1);
+            return ret;
+        }
+    }
+    ret.command.append(s);
+}
 
 vector<Command> tokenize(string &str) {
     vector<Command> commands;
@@ -107,19 +125,32 @@ vector<Command> tokenize(string &str) {
 }
 
 
-void runCommands(vector<Command> &commands) {
-    int in, new_in = STDIN_FILENO;
+string runCommands(vector<Command> &commands, string rest) {
+    int in, newIn = STDIN_FILENO;
+    Pipe p;
+    p.read = -1;
+    p.write = -1;
+    if(rest.size() > 0) {
+        //cout << "here1" << endl;
+        if (pipe(p.pip) < 0) {
+            perror("cant create pipe");
+            exit(-1);
+        }
+        write(p.write, rest.c_str(), rest.length());
+        close(p.write);
+        newIn = p.read;
+    }
     int out;
     for (int i = 0; i < commands.size(); i++) {
-        in = new_in;
+        in = newIn;
         if (i != commands.size() - 1) {
-            int pipes[2];
-            if (pipe2(pipes, O_CLOEXEC)) {
+            Pipe pipes;
+            if (pipe2(pipes.pip, O_CLOEXEC) < 0) {
                 perror("cant create pipe");
                 break;
             };
-            new_in = pipes[0];
-            out = pipes[1];
+            newIn = pipes.read;
+            out = pipes.write;
         } else {
             out = STDOUT_FILENO;
         }
@@ -129,7 +160,7 @@ void runCommands(vector<Command> &commands) {
             break;
         }
         if (pid > 0) {
-            if (in != STDIN_FILENO) close(in);
+            if (in != STDIN_FILENO && in != p.read) close(in);
             if (out != STDOUT_FILENO) close(out);
             childs.push_back(pid);
         } else {
@@ -144,21 +175,40 @@ void runCommands(vector<Command> &commands) {
             execvp(commands[i].command.c_str(), args);
         }
     }
+
     int status;
     for (int i = 0; i < childs.size(); i++) {
         waitpid(childs[i], &status, 0);
     }
     childs.clear();
+    string ret = "";
+    if(rest.size() > 0) {
+        //cout << "here" << endl;
+        ret = readCommands(p.read, 256);
+        close(p.read);
+    }
+    return ret;
 }
 
 int main(int argc, char **argv) {
-    string str = "foo";
+    string cmd = "";
     signal(SIGINT, sigintHandler);
-    while(str.size() != 0) {
+    while(true) {
         write(STDOUT_FILENO, "$ ", 2);
-        string str = readCommands();
-        vector<Command> commands = tokenize(str);
-        runCommands(commands);
+        string newCmd = readCommands(STDIN_FILENO, 256 - cmd.size());
+
+        cmd.append(newCmd);
+        //cmd = newCmd;
+        if(cmd.size() == 0) {
+            write(STDOUT_FILENO, "\n", 1);
+            break;
+        }
+
+        CmdStr cStr = splitCommand(cmd);
+        //cout << cStr.rest.length() << endl;
+        vector<Command> commands = tokenize(cStr.command);
+        cmd = runCommands(commands, cStr.rest);
+        //cout << "cmd: " << cmd << endl;
     }
     return 0;
 }
