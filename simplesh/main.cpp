@@ -98,7 +98,7 @@ vector<Command> tokenize(string &str) {
             if(i == str.size() - 1) {
                 i = str.size() + 1;
             }
-            tmps = trim(str.substr(firsti, i - firsti - 1));
+            tmps = trim(str.substr(firsti, i - firsti));
             size_t pos = tmps.find(' ');
             if(pos == string::npos) {
                 tmp.command = tmps;
